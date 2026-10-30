@@ -2,7 +2,7 @@
 
 3D-Punktwolke der Insel Lindau im Browser (three.js). Öffnen: `index.html` über einen Webserver, z. B. GitHub Pages.
 
-©Silas - Data Engineering + Mathematics
+©Silas Maile - M.Sc.Mathematik
 Dächer, Höfe, Bäume von Bayerischer Vermessungsverwaltung (CC BY 4.0)
 
 ## Dateien
