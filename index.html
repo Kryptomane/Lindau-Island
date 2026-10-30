@@ -68,7 +68,7 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
   </div>
 </div>
 
-<div id="laden">Lade Punktwolke …<div id="ladeText">0 von 5,8 Mio. Punkten</div><div class="balken"><i id="ladeBalken"></i></div></div>
+<div id="laden">Lade Punktwolke …<div id="ladeText">Stufe wird gewählt …</div><div class="balken"><i id="ladeBalken"></i></div></div>
 
 <div id="quelle"><strong>©Silas Maile - M.Sc. Mathematik</strong><br>Dächer, Höfe, Bäume von Bayerischer Vermessungsverwaltung (CC BY 4.0)</div>
 
@@ -88,6 +88,9 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
       <span>Punkte</span>
       <button id="kleiner" aria-label="Punkte kleiner">−</button>
       <button id="groesser" aria-label="Punkte größer">+</button>
+    </div>
+    <div class="gruppe" role="group" aria-label="Detailstufe" id="stufen" hidden>
+      <span>Stufe</span>
     </div>
     <div class="gruppe" role="group" aria-label="Ansicht">
       <button id="vOben">Von oben</button>
@@ -112,88 +115,76 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
   controls.dampingFactor = 0.12;
   controls.screenSpacePanning = false;
   controls.maxPolarAngle = Math.PI * 0.495;
-  controls.minDistance = 5;
+  controls.minDistance = 2;
   controls.maxDistance = 3500;
   controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 
-  const state = { farbe: "foto", groesse: 1.0, luft: true, spur: true, meta: null, zLo: 394, zHi: 428, hell: 1.45 };
-  const teile = [];          // {fahrt: Points, luft: Points, rgb:{fahrt,luft}, z:{fahrt,luft}}
-  let spur = null;
-  let geladen = 0;
+  const state = { farbe: "foto", groesse: 1.0, luft: true, spur: true, meta: null, zLo: 394, zHi: 428 };
+  let spur = null, geladen = 0;
 
-  // Welt: x = Ost, y = Höhe, z = −Nord (three.js ist y-oben)
+  // Punkte direkt aus den Binärteilen: int16 x,y,z | uint8 r,g,b | uint8 info (10 Byte) – keine Kopie im
+  // Speicher, Farbe/Höhe/Quelle und das Ausblenden der Befliegung macht der Shader (50 Mio. Punkte möglich)
+  const uni = {
+    massstab: { value: 0.025 }, groesse: { value: 0.9 }, skala: { value: 1 }, hell: { value: 1.45 },
+    zLo: { value: 394 }, zHi: { value: 428 }, mitteZ: { value: 0 }, luftAn: { value: 1 }, modus: { value: 0 },
+  };
+  const material = new THREE.ShaderMaterial({
+    uniforms: uni,
+    vertexShader: `
+      attribute vec3 farbe; attribute float info;
+      uniform float massstab, groesse, skala, hell, zLo, zHi, mitteZ, luftAn, modus;
+      varying vec3 vc;
+      vec3 hoehe(float t) {
+        vec3 c0 = vec3(0.18, 0.36, 0.42), c1 = vec3(0.42, 0.62, 0.55), c2 = vec3(0.86, 0.80, 0.58),
+             c3 = vec3(0.88, 0.55, 0.33), c4 = vec3(0.95, 0.93, 0.90);
+        if (t < 0.25) return mix(c0, c1, t / 0.25);
+        if (t < 0.5) return mix(c1, c2, (t - 0.25) / 0.25);
+        if (t < 0.75) return mix(c2, c3, (t - 0.5) / 0.25);
+        return mix(c3, c4, (t - 0.75) / 0.25);
+      }
+      void main() {
+        float luft = floor(info / 16.0 + 0.01) > 1.5 ? 1.0 : 0.0;     // Quelle 2/3 = Befliegung/LoD2
+        vc = vec3(0.0);
+        if (luft > 0.5 && luftAn < 0.5) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); gl_PointSize = 0.0; return; }
+        vec3 p = vec3(position.x, position.z, -position.y) * massstab;  // Ost, Höhe, −Nord
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = clamp(groesse * (luft > 0.5 ? 1.2 : 1.0) * skala / max(-mv.z, 0.1), 1.0, 32.0);
+        if (modus < 0.5) vc = pow(farbe, vec3(1.0 / hell));             // Kamerafarben sanft aufhellen
+        else if (modus < 1.5) vc = hoehe(clamp((p.y + mitteZ - zLo) / (zHi - zLo), 0.0, 1.0));
+        else vc = luft > 0.5 ? vec3(0.88, 0.64, 0.35) : vec3(0.50, 0.78, 0.75);
+      }`,
+    fragmentShader: `
+      varying vec3 vc;
+      void main() {
+        vec2 q = gl_PointCoord * 2.0 - 1.0;
+        if (dot(q, q) > 1.0) discard;                                    // runde Punkte
+        gl_FragColor = vec4(vc, 1.0);
+      }`,
+  });
+
   function resize() {
     const w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    uni.skala.value = renderer.getDrawingBufferSize(new THREE.Vector2()).y / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
   }
   window.addEventListener("resize", resize);
   resize();
 
-  const material = (s) => new THREE.PointsMaterial({ size: s, vertexColors: true, sizeAttenuation: true });
-  const matFahrt = material(0.9), matLuft = material(1.1);
-
-  function aufhellen(c) {                 // Kamerafarben sind dunkel entwickelt → sanft anheben
-    const g = 1 / state.hell, out = new Float32Array(c.length);
-    for (let i = 0; i < c.length; i++) out[i] = Math.pow(c[i] / 255, g);
-    return out;
-  }
-  function hoehenFarbe(z) {               // Seehöhe → Uferstein → Ziegel → Dachfirst
-    const stops = [[0, [0.18, 0.36, 0.42]], [0.25, [0.42, 0.62, 0.55]], [0.5, [0.86, 0.80, 0.58]], [0.75, [0.88, 0.55, 0.33]], [1, [0.95, 0.93, 0.90]]];
-    const out = new Float32Array(z.length * 3), lo = state.zLo, sp = state.zHi - state.zLo;
-    for (let i = 0; i < z.length; i++) {
-      const t = Math.min(1, Math.max(0, (z[i] - lo) / sp));
-      let k = 0; while (k < stops.length - 2 && t > stops[k + 1][0]) k++;
-      const a = stops[k], b = stops[k + 1], f = (t - a[0]) / (b[0] - a[0]);
-      for (let j = 0; j < 3; j++) out[i * 3 + j] = a[1][j] + f * (b[1][j] - a[1][j]);
-    }
-    return out;
-  }
-  function quellenFarbe(n, art) {
-    const c = art === "fahrt" ? [0.50, 0.78, 0.75] : [0.88, 0.64, 0.35], out = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) { out[i * 3] = c[0]; out[i * 3 + 1] = c[1]; out[i * 3 + 2] = c[2]; }
-    return out;
-  }
-  function faerben(t, art) {
-    const pts = t[art]; if (!pts) return;
-    let col;
-    if (state.farbe === "foto") col = aufhellen(t.rgb[art]);
-    else if (state.farbe === "hoehe") col = hoehenFarbe(t.z[art]);
-    else col = quellenFarbe(t.z[art].length, art);
-    pts.geometry.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  }
-
   function teilAufbauen(buf) {
-    const m = state.meta, s = m.massstab_m, n = buf.byteLength / 10;
-    const i16 = new Int16Array(buf), u8 = new Uint8Array(buf);
-    const zaehl = { fahrt: 0, luft: 0 };
-    for (let i = 0; i < n; i++) (u8[i * 10 + 9] >> 4) === 1 ? zaehl.fahrt++ : zaehl.luft++;
-    const t = { rgb: {}, z: {} }, pos = {}, k = { fahrt: 0, luft: 0 };
-    for (const art of ["fahrt", "luft"]) {
-      pos[art] = new Float32Array(zaehl[art] * 3);
-      t.rgb[art] = new Uint8Array(zaehl[art] * 3);
-      t.z[art] = new Float32Array(zaehl[art]);
-    }
-    for (let i = 0; i < n; i++) {
-      const art = (u8[i * 10 + 9] >> 4) === 1 ? "fahrt" : "luft", j = k[art]++;
-      const x = i16[i * 5] * s, y = i16[i * 5 + 1] * s, z = i16[i * 5 + 2] * s;
-      pos[art][j * 3] = x; pos[art][j * 3 + 1] = z; pos[art][j * 3 + 2] = -y;
-      t.rgb[art][j * 3] = u8[i * 10 + 6]; t.rgb[art][j * 3 + 1] = u8[i * 10 + 7]; t.rgb[art][j * 3 + 2] = u8[i * 10 + 8];
-      t.z[art][j] = z + m.mitte[2];
-    }
-    for (const art of ["fahrt", "luft"]) {
-      if (!zaehl[art]) continue;
-      const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.BufferAttribute(pos[art], 3));
-      g.computeBoundingSphere();
-      t[art] = new THREE.Points(g, art === "fahrt" ? matFahrt : matLuft);
-      t[art].visible = art === "fahrt" || state.luft;
-      faerben(t, art);
-      scene.add(t[art]);
-    }
-    teile.push(t);
-    return n;
+    const n = buf.byteLength / 10;
+    const ib16 = new THREE.InterleavedBuffer(new Int16Array(buf), 5);
+    const ib8 = new THREE.InterleavedBuffer(new Uint8Array(buf), 10);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.InterleavedBufferAttribute(ib16, 3, 0, false));
+    g.setAttribute("farbe", new THREE.InterleavedBufferAttribute(ib8, 3, 6, true));
+    g.setAttribute("info", new THREE.InterleavedBufferAttribute(ib8, 1, 9, false));
+    const pts = new THREE.Points(g, material);
+    pts.frustumCulled = false;
+    scene.add(pts);
+    return { n, i16: ib16.array };
   }
 
   function spurAufbauen(fahrt) {
@@ -201,7 +192,7 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
     const pos = new Float32Array(fahrt.length * 3), col = new Float32Array(fahrt.length * 3), tMax = fahrt[fahrt.length - 1][3] || 1;
     fahrt.forEach((p, i) => {
       pos[i * 3] = p[0]; pos[i * 3 + 1] = p[2] + 1.2; pos[i * 3 + 2] = -p[1];
-      const f = p[3] / tMax;                           // Fahrtbeginn hell, Ende gesättigt
+      const f = p[3] / tMax;
       col[i * 3] = 0.98 - 0.10 * f; col[i * 3 + 1] = 0.82 - 0.38 * f; col[i * 3 + 2] = 0.52 - 0.36 * f;
     });
     const g = new THREE.BufferGeometry();
@@ -224,10 +215,12 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
   }
 
   const fmt = (v) => Math.round(v).toLocaleString("de-DE");
+  const mio = (v) => (v / 1e6).toLocaleString("de-DE", { maximumFractionDigits: 1 });
+  let stufeText = "";
   function lageAnzeigen() {
     const m = state.meta; if (!m) return;
     const t = controls.target;
-    $("lage").textContent = `E ${fmt(m.mitte[0] + t.x)} · N ${fmt(m.mitte[1] - t.z)} · ${fmt(camera.position.distanceTo(t))} m Abstand`;
+    $("lage").textContent = `E ${fmt(m.mitte[0] + t.x)} · N ${fmt(m.mitte[1] - t.z)} · ${fmt(camera.position.distanceTo(t))} m Abstand${stufeText}`;
     const az = Math.atan2(camera.position.x - t.x, camera.position.z - t.z);
     $("kompass").querySelector("svg").style.transform = `rotate(${(az * 180 / Math.PI).toFixed(1)}deg)`;
   }
@@ -235,20 +228,21 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
   function knopf(id, fn) { $(id).addEventListener("click", fn); }
   function farbeSetzen(f) {
     state.farbe = f;
+    uni.modus.value = { foto: 0, hoehe: 1, quelle: 2 }[f];
     [["fFoto", "foto"], ["fHoehe", "hoehe"], ["fQuelle", "quelle"]].forEach(([id, v]) => $(id).setAttribute("aria-pressed", String(v === f)));
-    teile.forEach((t) => { faerben(t, "fahrt"); faerben(t, "luft"); });
   }
   knopf("fFoto", () => farbeSetzen("foto"));
   knopf("fHoehe", () => farbeSetzen("hoehe"));
   knopf("fQuelle", () => farbeSetzen("quelle"));
-  knopf("tLuft", () => { state.luft = !state.luft; $("tLuft").setAttribute("aria-pressed", String(state.luft)); teile.forEach((t) => t.luft && (t.luft.visible = state.luft)); });
+  knopf("tLuft", () => { state.luft = !state.luft; uni.luftAn.value = state.luft ? 1 : 0; $("tLuft").setAttribute("aria-pressed", String(state.luft)); });
   knopf("tSpur", () => { state.spur = !state.spur; $("tSpur").setAttribute("aria-pressed", String(state.spur)); if (spur) spur.visible = state.spur; });
-  const groesse = (f) => { state.groesse = Math.min(4, Math.max(0.3, state.groesse * f)); matFahrt.size = 0.9 * state.groesse; matLuft.size = 1.1 * state.groesse; };
+  let basisGroesse = 0.9;
+  const groesse = (f) => { state.groesse = Math.min(6, Math.max(0.2, state.groesse * f)); uni.groesse.value = basisGroesse * state.groesse; };
   knopf("kleiner", () => groesse(1 / 1.3));
   knopf("groesser", () => groesse(1.3));
   knopf("vOben", () => ansicht("oben"));
   knopf("vSchraeg", () => ansicht("schraeg"));
-  const nord = () => {                       // Blickrichtung nach Norden drehen, Abstand und Neigung behalten
+  const nord = () => {
     const t = controls.target, d = camera.position.clone().sub(t);
     const r = Math.hypot(d.x, d.z);
     camera.position.set(t.x, camera.position.y, t.z + Math.max(r, 0.01));
@@ -264,25 +258,70 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
     requestAnimationFrame(schleife);
   }
 
-  async function laden() {
+  // Detailstufe: ?stufe=NAME, sonst nach Gerät (Handy/Tablet → kleinste, sonst größte Stufe)
+  const mobil = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|Opera Mini/i.test(navigator.userAgent)
+             || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+  async function stufeWaehlen() {
+    let liste = [];
     try {
-      const meta = await (await fetch("meta.json")).json();
+      const r = await fetch("versionen.json");
+      if (r.ok) liste = (await r.json()).versionen || [];
+    } catch (e) { /* einstufiges Paket */ }
+    if (!liste.length) return "";
+    liste.sort((a, b) => b.punkte - a.punkte);
+    const wunsch = new URLSearchParams(location.search).get("stufe");
+    const v = liste.find((x) => x.name === wunsch) || (mobil ? liste[liste.length - 1] : liste[0]);
+    const box = $("stufen");
+    box.hidden = false;
+    for (const x of liste) {
+      const b = document.createElement("button");
+      b.textContent = `${x.name} ${mio(x.punkte)} Mio.`;
+      b.title = `${x.mb} MB laden`;
+      b.setAttribute("aria-pressed", String(x === v));
+      b.addEventListener("click", () => { if (x !== v) location.search = "?stufe=" + encodeURIComponent(x.name); });
+      box.appendChild(b);
+    }
+    stufeText = ` · ${v.name} (${mobil ? "Handy" : "Desktop"} erkannt)`;
+    return v.ordner.replace(/\/?$/, "/");
+  }
+
+  async function laden() {
+    if (location.protocol === "file:") {
+      $("ladeText").textContent = "Bitte über starten.bat öffnen (Browser laden keine Dateien direkt von der Festplatte).";
+      return;
+    }
+    try {
+      const basis = await stufeWaehlen();
+      const meta = await (await fetch(basis + "meta.json")).json();
       state.meta = meta;
+      uni.massstab.value = meta.massstab_m;
+      uni.mitteZ.value = meta.mitte[2];
+      basisGroesse = Math.max(0.05, 1.4 * (meta.wuerfel_m || 0.65));
+      uni.groesse.value = basisGroesse * state.groesse;
       const gesamt = meta.punkte;
-      const mio = (v) => (v / 1e6).toLocaleString("de-DE", { maximumFractionDigits: 1 });
       ansicht("schraeg");
       spurAufbauen(meta.fahrt);
       requestAnimationFrame(schleife);
-      for (const teil of meta.teile) {
-        const antwort = await fetch(teil.datei);
-        if (!antwort.ok) throw new Error(teil.datei + ": " + antwort.status);
-        const buf = await antwort.arrayBuffer();
-        geladen += teilAufbauen(buf);
+      // mehrere Teile gleichzeitig laden, in Reihenfolge einbauen
+      const teile = meta.teile, holen = (t) => fetch(basis + t.datei).then((a) => {
+        if (!a.ok) throw new Error(t.datei + ": " + a.status);
+        return a.arrayBuffer();
+      });
+      const vorlauf = [];
+      for (let i = 0; i < Math.min(3, teile.length); i++) vorlauf.push(holen(teile[i]));
+      for (let i = 0; i < teile.length; i++) {
+        const buf = await vorlauf[i];
+        if (i + 3 < teile.length) vorlauf.push(holen(teile[i + 3]));
+        const t = teilAufbauen(buf);
+        geladen += t.n;
         $("ladeText").textContent = `${mio(geladen)} von ${mio(gesamt)} Mio. Punkten`;
         $("ladeBalken").style.width = `${(100 * geladen / gesamt).toFixed(0)}%`;
-        if (teile.length === 1) {               // Höhenbereich aus dem ersten (gemischten) Teil
-          const z = Array.from(teile[0].z.fahrt.length ? teile[0].z.fahrt : teile[0].z.luft).sort((a, b) => a - b);
+        if (i === 0) {                                      // Höhenbereich aus dem ersten (gemischten) Teil
+          const z = [];
+          for (let j = 2; j < t.i16.length; j += 5 * 7) z.push(t.i16[j] * meta.massstab_m + meta.mitte[2]);
+          z.sort((a, b) => a - b);
           state.zLo = z[Math.floor(z.length * 0.01)]; state.zHi = z[Math.floor(z.length * 0.995)];
+          uni.zLo.value = state.zLo; uni.zHi.value = state.zHi;
           ansicht("schraeg");
         }
       }

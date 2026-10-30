@@ -1,0 +1,18 @@
+{
+ "versionen": [
+  {
+   "name": "desktop",
+   "ordner": "desktop",
+   "punkte": 49269506,
+   "wuerfel_m": 0.207,
+   "mb": 493
+  },
+  {
+   "name": "handy",
+   "ordner": "handy",
+   "punkte": 9917558,
+   "wuerfel_m": 0.554,
+   "mb": 99
+  }
+ ]
+}
