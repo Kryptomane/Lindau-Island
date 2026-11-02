@@ -15,8 +15,8 @@ Die Seite wählt die Stufe nach Gerät (Handy/Tablet → kleinste, sonst größt
 unter „Stufe“ umschalten; direkt per Adresse: `index.html?stufe=NAME`.
 
 ## Stufen
-- `desktop/` – 49.3 Mio. Punkte (Würfel 21 cm, 493 MB)
-- `handy/` – 9.9 Mio. Punkte (Würfel 55 cm, 99 MB)
+- `desktop/` – 49.6 Mio. Punkte (Würfel 21 cm, 496 MB)
+- `handy/` – 9.8 Mio. Punkte (Würfel 60 cm, 98 MB)
 
 ## Dateien
 - `index.html` – Ansicht, `versionen.json` – Liste der Stufen

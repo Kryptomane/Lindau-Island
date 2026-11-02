@@ -3,16 +3,16 @@
   {
    "name": "desktop",
    "ordner": "desktop",
-   "punkte": 49269506,
-   "wuerfel_m": 0.207,
-   "mb": 493
+   "punkte": 49645975,
+   "wuerfel_m": 0.206,
+   "mb": 496
   },
   {
    "name": "handy",
    "ordner": "handy",
-   "punkte": 9917558,
-   "wuerfel_m": 0.554,
-   "mb": 99
+   "punkte": 9795192,
+   "wuerfel_m": 0.595,
+   "mb": 98
   }
  ]
 }
