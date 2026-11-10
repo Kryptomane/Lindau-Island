@@ -1,24 +1,40 @@
 # Inselkarte Lindau
 
-3D-Punktwolke der Insel Lindau im Browser (three.js), in mehreren Detailstufen.
+Eine begehbare 3D-Punktwolke der Lindauer Insel direkt im Browser – Straßen, Fassaden, Hafen und
+Seebrücke, eingefärbt mit echten Kamerafarben.
 
-©Silas Maile - M.Sc.Mathematik
-Dächer, Höfe, Bäume von Bayerischer Vermessungsverwaltung (CC BY 4.0)
+## Woher die Daten stammen
 
-## Öffnen
-- **Lokal (Windows):** `starten.bat` doppelklicken – startet einen kleinen Webserver in diesem Ordner und
-  öffnet den Browser (http://localhost:8765/). Direkt per Doppelklick auf `index.html` geht es nicht,
-  weil Browser von der Festplatte keine Daten nachladen dürfen.
-- **Im Netz:** den ganzen Ordner z. B. auf GitHub Pages legen.
+Die Punktwolke wurde im Rahmen einer Sondergenehmigung der Stadt Lindau mit einem Messfahrzeug
+aufgenommen (LiDAR auf dem Dach, Kameras rundum, GNSS/INS). In rund 100 Minuten Fahrt entstanden
+so Millionen Laserpunkte der Insel.
 
-Die Seite wählt die Stufe nach Gerät (Handy/Tablet → kleinste, sonst größte) und lässt sich unten
-unter „Stufe“ umschalten; direkt per Adresse: `index.html?stufe=NAME`.
+## Verarbeitung (kurz)
 
-## Stufen
-- `desktop/` – 49.6 Mio. Punkte (Würfel 21 cm, 496 MB)
-- `handy/` – 9.8 Mio. Punkte (Würfel 60 cm, 98 MB)
+1. **LiDAR-Odometrie:** Die Laserscans werden nacheinander zueinander ausgerichtet.
+2. **Pose-Graph:** Wiederholte Durchfahrten (Loops) und GNSS korrigieren die Fahrtspur global.
+3. **Dichte Karte:** Alle Scans werden zu einer Punktwolke vereint, bewegte Objekte (Autos,
+   Fußgänger) entfernt.
+4. **Einfärben:** Jeder Punkt erhält seine Farbe aus den zeitgleichen Kamerabildern.
+5. **Fusion:** Was von der Straße aus nicht sichtbar ist – Dächer, Innenhöfe, Bäume – wird aus der
+   amtlichen Befliegung der Bayerischen Vermessungsverwaltung ergänzt; die Fahrdaten werden dazu
+   auf deren Lage und Höhe (ETRS89/UTM32, m ü. NHN) eingepasst.
 
-## Dateien
-- `index.html` – Ansicht, `versionen.json` – Liste der Stufen
-- `<stufe>/meta.json` – Mittelpunkt (ETRS89/UTM32), Maßstab, Fahrtspur
-- `<stufe>/teil_000.bin` … – Punkte, je Punkt 10 Byte (int16 x,y,z × Maßstab | RGB | Quelle·16 + Klasse)
+## Bedienung
+
+- **Maus/Finger:** ziehen = drehen, Mausrad bzw. zwei Finger = zoomen und verschieben;
+  der Kompass richtet die Ansicht nach Norden aus.
+- **Foto / Höhe / Quelle:** Einfärbung nach Kamerafarbe, nach Höhe oder nach Herkunft
+  (Messfahrt bzw. Befliegung).
+- **Dächer / Fahrt:** blendet die ergänzten Befliegungsdaten bzw. die Fahrtspur ein und aus.
+- **− / +:** Punkte kleiner oder größer darstellen.
+- **Von oben / Schräg:** feste Blickwinkel.
+- **Lineal:** zwei Punkte anklicken – angezeigt werden Strecke, waagrechter Abstand,
+  Höhenunterschied und die Höhen über NHN. Beenden mit ✕ oder Esc.
+- **Stufe:** Handys laden automatisch eine leichtere Version (9,8 Mio. Punkte), sonst die
+  volle (49,6 Mio. Punkte).
+
+---
+
+©Silas Maile - M.Sc. Mathematik
+Dächer, Höfe, Bäume von Bayerischer Vermessungsverwaltung (CC BY 4.0) – www.geodaten.bayern.de
