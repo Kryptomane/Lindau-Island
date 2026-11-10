@@ -3,6 +3,8 @@
 Eine begehbare 3D-Punktwolke der Lindauer Insel direkt im Browser – Straßen, Fassaden, Hafen und
 Seebrücke, eingefärbt mit echten Kamerafarben.
 
+https://kryptomane.github.io/Lindau-Island/
+
 ## Woher die Daten stammen
 
 Die Punktwolke wurde im Rahmen einer Sondergenehmigung der Stadt Lindau mit einem Messfahrzeug
