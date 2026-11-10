@@ -3,6 +3,8 @@
 Eine begehbare 3D-Punktwolke der Lindauer Insel direkt im Browser – Straßen, Fassaden, Hafen und
 Seebrücke, eingefärbt mit echten Kamerafarben.
 
+![Inselkarte Lindau – Schrägansicht mit Einfärbung nach Höhe](Inselprofil.png)
+
 https://kryptomane.github.io/Lindau-Island/
 
 ## Woher die Daten stammen
