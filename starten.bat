@@ -1,8 +1,7 @@
 @echo off
-rem Inselkarte lokal öffnen: kleiner Webserver in diesem Ordner + Browser.
-rem Fenster offen lassen, solange die Karte angezeigt wird; Strg+C beendet den Server.
+rem Lokal oeffnen: kleiner Webserver in DIESEM Ordner auf einem freien Port + Browser.
+rem Mehrere Ansichten koennen gleichzeitig laufen. Fenster offen lassen; Strg+C oder Schliessen beendet.
 cd /d "%~dp0"
 set PY=python
 where py >nul 2>nul && set PY=py
-start "" cmd /c "timeout /t 2 >nul & start http://localhost:8765/"
-%PY% -m http.server 8765
+%PY% -c "import http.server as h, socketserver as s, webbrowser as w; s.TCPServer.allow_reuse_address=False; d=s.TCPServer(('127.0.0.1', 0), h.SimpleHTTPRequestHandler); u='http://localhost:%%d/' %% d.server_address[1]; print('Ansicht laeuft unter', u, '- Fenster offen lassen'); w.open(u); d.serve_forever()"

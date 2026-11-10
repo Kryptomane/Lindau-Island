@@ -49,6 +49,16 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
 #laden .balken i { display: block; height: 100%; width: 0; background: var(--akzent); transition: width 0.3s; }
 #quelle { position: fixed; z-index: 4; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(84px + env(safe-area-inset-bottom, 0px)); font-size: 13.5px; color: var(--text); max-width: min(80vw, 520px); text-align: right; line-height: 1.45; pointer-events: none; background: var(--tafel); border: 1px solid var(--linie); border-radius: 10px; padding: 7px 11px; backdrop-filter: blur(6px); }
 #quelle strong { font-size: 14.5px; color: #ffffff; }
+/* Lineal: zwei Messpunkte, Strecke als Overlay */
+body.messen #bild { cursor: crosshair; }
+.messpunkt { position: fixed; z-index: 4; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #ffd166; border: 2px solid var(--see); box-shadow: 0 0 0 1px #ffd166; pointer-events: none; }
+.messpunkt b { position: absolute; left: 13px; top: -15px; font: 700 11px var(--mono); color: #ffd166; text-shadow: 0 0 3px #000; }
+#messMitte { position: fixed; z-index: 4; transform: translate(-50%, -130%); font: 500 13px var(--mono); color: var(--see); background: #ffd166; border-radius: 7px; padding: 3px 8px; pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#messTafel { position: fixed; z-index: 5; left: 50%; transform: translateX(-50%); top: calc(84px + env(safe-area-inset-top, 0px)); background: var(--tafel); border: 1px solid #ffd166; border-radius: 10px; padding: 8px 10px 8px 14px; display: flex; gap: 12px; align-items: center; max-width: calc(100vw - 32px); backdrop-filter: blur(6px); }
+#messTafel .wert { font: 700 18px var(--display); color: #ffd166; font-variant-numeric: tabular-nums; }
+#messTafel .zeile { font: 400 11.5px var(--mono); color: var(--leise); font-variant-numeric: tabular-nums; }
+#messTafel button { min-height: 32px; padding: 4px 10px; }
+[hidden] { display: none !important; }
 @media (max-width: 520px) { button { padding: 7px 9px; font-size: 12.5px; } .gruppe span { display: none; } #quelle { bottom: calc(130px + env(safe-area-inset-bottom, 0px)); font-size: 12.5px; } }
 @media (prefers-reduced-motion: reduce) { #kompass svg, #laden .balken i { transition: none; } }
 </style>
@@ -96,8 +106,19 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
       <button id="vOben">Von oben</button>
       <button id="vSchraeg">Schräg</button>
     </div>
+    <div class="gruppe" role="group" aria-label="Messen">
+      <button id="tLineal" aria-pressed="false" title="Abstand messen: zwei Punkte anklicken (Esc beendet)">Lineal</button>
+    </div>
   </div>
 </div>
+
+<div id="messTafel" hidden aria-live="polite">
+  <div><div class="wert" id="messWert">Ersten Punkt anklicken</div><div class="zeile" id="messZeile">Klick auf die Punktwolke setzt Punkt A</div></div>
+  <button id="messZu" aria-label="Lineal beenden">✕</button>
+</div>
+<div class="messpunkt" id="messA" hidden><b>A</b></div>
+<div class="messpunkt" id="messB" hidden><b>B</b></div>
+<div id="messMitte" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -151,7 +172,7 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
         gl_Position = projectionMatrix * mv;
         gl_PointSize = clamp(groesse * (luft > 0.5 ? 1.2 : 1.0) * skala / max(-mv.z, 0.1), 1.0, 32.0);
         if (modus < 0.5) vc = pow(farbe, vec3(1.0 / hell));             // Kamerafarben sanft aufhellen
-        else if (modus < 1.5) vc = hoehe(clamp((p.y + mitteZ - zLo) / (zHi - zLo), 0.0, 1.0));
+        else if (modus < 1.5) vc = hoehe(clamp(((modelMatrix * vec4(p, 1.0)).y + mitteZ - zLo) / (zHi - zLo), 0.0, 1.0));
         else vc = luft > 0.5 ? vec3(0.88, 0.64, 0.35) : vec3(0.50, 0.78, 0.75);
       }`,
     fragmentShader: `
@@ -173,7 +194,7 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
   window.addEventListener("resize", resize);
   resize();
 
-  function teilAufbauen(buf) {
+  function teilAufbauen(buf, versatz) {
     const n = buf.byteLength / 10;
     const ib16 = new THREE.InterleavedBuffer(new Int16Array(buf), 5);
     const ib8 = new THREE.InterleavedBuffer(new Uint8Array(buf), 10);
@@ -183,9 +204,102 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
     g.setAttribute("info", new THREE.InterleavedBufferAttribute(ib8, 1, 9, false));
     const pts = new THREE.Points(g, material);
     pts.frustumCulled = false;
+    if (versatz) pts.position.set(versatz[0], versatz[2], -versatz[1]);   // Block-Versatz (Ost, Höhe, −Nord)
     scene.add(pts);
-    return { n, i16: ib16.array };
+    return { n, i16: ib16.array, u8: ib8.array };
   }
+
+  // ---------------------------------------------------------------- Lineal
+  // Auswahl auf der CPU direkt in den Binärteilen: alle Punkte im Sichtkegel (wenige Pixel um den Klick),
+  // davon die vorderste Fläche, dort der Punkt am nächsten zum Strahl. Welt = (x·s+vO, z·s+vH, −(y·s+vN)).
+  const teileDaten = [];
+  const mess = { an: false, p: [], linie: null };
+  function punktWaehlen(cx, cy) {
+    const m = state.meta; if (!m || !teileDaten.length) return null;
+    const r = canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    const rc = new THREE.Raycaster(); rc.setFromCamera(ndc, camera);
+    const o = rc.ray.origin, d = rc.ray.direction, s = m.massstab_m;
+    const tol = (mobil ? 14 : 7) * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / r.height;
+    const k2 = tol * tol, ohneLuft = !state.luft;
+    const lauf = (fn) => {
+      for (let pi = 0; pi < teileDaten.length; pi++) {
+        const T = teileDaten[pi], a = T.i16, u = T.u8;
+        const ox = o.x - T.v[0], oy = o.y - T.v[2], oz = o.z + T.v[1];
+        for (let j = 0, b = 9; j < a.length; j += 5, b += 10) {
+          if (ohneLuft && u[b] >= 32) continue;                       // Befliegung/LoD2 ausgeblendet
+          const px = a[j] * s - ox, py = a[j + 2] * s - oy, pz = -a[j + 1] * s - oz;
+          const t = px * d.x + py * d.y + pz * d.z;
+          if (t < 0.3) continue;
+          const q = px * px + py * py + pz * pz - t * t;
+          if (q < k2 * t * t) fn(t, q / (t * t), pi, j);
+        }
+      }
+    };
+    let tMin = Infinity;
+    lauf((t) => { if (t < tMin) tMin = t; });
+    if (!isFinite(tMin)) return null;
+    const tMax = tMin + Math.max(0.4, tMin * 0.004);                  // nur die vorderste Fläche
+    let best = Infinity, bp = -1, bj = -1;
+    lauf((t, w, pi, j) => { if (t <= tMax && w < best) { best = w; bp = pi; bj = j; } });
+    const T = teileDaten[bp], a = T.i16;
+    return new THREE.Vector3(a[bj] * s + T.v[0], a[bj + 2] * s + T.v[2], -(a[bj + 1] * s + T.v[1]));
+  }
+  const zahl = (v, n = 2) => v.toLocaleString("de-DE", { minimumFractionDigits: n, maximumFractionDigits: n });
+  function messAnzeigen() {
+    const [A, B] = mess.p;
+    $("messA").hidden = !A; $("messB").hidden = !B; $("messMitte").hidden = !B;
+    if (mess.linie) { scene.remove(mess.linie); mess.linie.geometry.dispose(); mess.linie = null; }
+    const hz = (p) => zahl(p.y + state.meta.mitte[2], 1);
+    if (!A) { $("messWert").textContent = "Ersten Punkt anklicken"; $("messZeile").textContent = "Klick auf die Punktwolke setzt Punkt A"; return; }
+    if (!B) { $("messWert").textContent = "Zweiten Punkt anklicken"; $("messZeile").textContent = `A: Höhe ${hz(A)} m ü. NHN`; return; }
+    const g = new THREE.BufferGeometry().setFromPoints([A, B]);
+    mess.linie = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffd166, depthTest: false, depthWrite: false, transparent: true }));
+    mess.linie.renderOrder = 1000;
+    scene.add(mess.linie);
+    const dx = B.x - A.x, dy = B.y - A.y, dz = B.z - A.z;
+    const d3 = Math.hypot(dx, dy, dz), dh = Math.hypot(dx, dz);
+    $("messWert").textContent = `${zahl(d3)} m`;
+    $("messMitte").textContent = `${zahl(d3)} m`;
+    $("messZeile").textContent = `waagrecht ${zahl(dh)} m · Höhenunterschied ${dy >= 0 ? "+" : "−"}${zahl(Math.abs(dy))} m · A ${hz(A)} / B ${hz(B)} m ü. NHN`;
+  }
+  const _v = new THREE.Vector3();
+  function aufBildschirm(el, p) {
+    _v.copy(p).project(camera);
+    const sicht = _v.z < 1 && Math.abs(_v.x) < 1.2 && Math.abs(_v.y) < 1.2;
+    el.style.visibility = sicht ? "visible" : "hidden";
+    el.style.left = `${((_v.x + 1) / 2) * window.innerWidth}px`;
+    el.style.top = `${((1 - _v.y) / 2) * window.innerHeight}px`;
+  }
+  function messNachfuehren() {
+    if (!mess.an) return;
+    const [A, B] = mess.p;
+    if (A) aufBildschirm($("messA"), A);
+    if (B) { aufBildschirm($("messB"), B); aufBildschirm($("messMitte"), A.clone().add(B).multiplyScalar(0.5)); }
+  }
+  function linealSetzen(an) {
+    mess.an = an; mess.p = [];
+    document.body.classList.toggle("messen", an);
+    $("tLineal").setAttribute("aria-pressed", String(an));
+    $("messTafel").hidden = !an;
+    messAnzeigen();
+  }
+  let unten = null;                                                  // Klick ≠ Drehen/Schieben
+  canvas.addEventListener("pointerdown", (e) => { unten = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  canvas.addEventListener("pointerup", (e) => {
+    if (!mess.an || !unten || !e.isPrimary) return;
+    const weit = Math.hypot(e.clientX - unten.x, e.clientY - unten.y), lang = performance.now() - unten.t;
+    unten = null;
+    if (weit > 6 || lang > 600) return;
+    $("messZeile").textContent = "suche Punkt …";
+    setTimeout(() => {
+      const p = punktWaehlen(e.clientX, e.clientY);
+      if (!p) { messAnzeigen(); $("messZeile").textContent = "Kein Punkt getroffen – näher heranzoomen oder genauer klicken"; return; }
+      if (mess.p.length >= 2) mess.p = [];
+      mess.p.push(p);
+      messAnzeigen();
+    }, 0);
+  });
 
   function spurAufbauen(fahrt) {
     if (!fahrt || !fahrt.length) return;
@@ -251,12 +365,16 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
     camera.position.set(t.x, camera.position.y, t.z + Math.max(r, 0.01));
     controls.update();
   };
+  knopf("tLineal", () => linealSetzen(!mess.an));
+  knopf("messZu", () => linealSetzen(false));
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && mess.an) linealSetzen(false); });
   $("kompass").addEventListener("click", nord);
   $("kompass").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); nord(); } });
 
   function schleife() {
     controls.update();
     lageAnzeigen();
+    messNachfuehren();
     renderer.render(scene, camera);
     requestAnimationFrame(schleife);
   }
@@ -315,13 +433,15 @@ button:focus-visible { outline: 2px solid var(--akzent); outline-offset: 2px; }
       for (let i = 0; i < teile.length; i++) {
         const buf = await vorlauf[i];
         if (i + 3 < teile.length) vorlauf.push(holen(teile[i + 3]));
-        const t = teilAufbauen(buf);
+        const t = teilAufbauen(buf, teile[i].versatz);
+        teileDaten.push({ i16: t.i16, u8: t.u8, v: teile[i].versatz || [0, 0, 0] });
         geladen += t.n;
         $("ladeText").textContent = `${mio(geladen)} von ${mio(gesamt)} Mio. Punkten`;
         $("ladeBalken").style.width = `${(100 * geladen / gesamt).toFixed(0)}%`;
         if (i === 0) {                                      // Höhenbereich aus dem ersten (gemischten) Teil
           const z = [];
-          for (let j = 2; j < t.i16.length; j += 5 * 7) z.push(t.i16[j] * meta.massstab_m + meta.mitte[2]);
+          const vz = (teile[i].versatz || [0, 0, 0])[2];
+          for (let j = 2; j < t.i16.length; j += 5 * 7) z.push(t.i16[j] * meta.massstab_m + vz + meta.mitte[2]);
           z.sort((a, b) => a - b);
           state.zLo = z[Math.floor(z.length * 0.01)]; state.zHi = z[Math.floor(z.length * 0.995)];
           uni.zLo.value = state.zLo; uni.zHi.value = state.zHi;
